@@ -1,0 +1,25 @@
+---
+interface Props {
+  title?: string;
+}
+const { title = 'LocalMate' } = Astro.props;
+---
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#22c55e" />
+    <link rel="manifest" href="/manifest.json" />
+    <title>{title}</title>
+
+    <script define:vars={{ posthogKey: import.meta.env.PUBLIC_POSTHOG_KEY, posthogHost: import.meta.env.PUBLIC_POSTHOG_HOST }}>
+      if (posthogKey) {
+        (function(c,a,p,t,u,r,e){if(c.__ph_q){return}c.__ph_q=[];c.posthog={capture:function(){c.__ph_q.push(arguments)},init:function(){},identify:function(){},reset:function(){}};var s=a.createElement('script');s.async=true;s.src=p+'/static/array.js';s.onload=function(){window.posthog.init(posthogKey,{api_host:posthogHost,session_recording:{enabled:true},loaded:function(ph){c.__ph_q.forEach(function(args){ph.capture.apply(ph,args)});c.__ph_q=[];}})};a.head.appendChild(s);})(window,document,posthogHost);
+      }
+    </script>
+  </head>
+  <body class="bg-gray-50 min-h-screen">
+    <slot />
+  </body>
+</html>

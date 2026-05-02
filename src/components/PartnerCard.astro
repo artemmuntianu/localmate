@@ -1,0 +1,66 @@
+---
+import BonusClaimFlow from './BonusClaimFlow';
+import type { Partner } from '../lib/supabase';
+
+interface Props {
+  partner: Partner;
+}
+const { partner } = Astro.props;
+
+const hasMenu = partner.daily_menus.length > 0;
+const menuText = partner.daily_menus[0]?.menu_text ?? '';
+---
+
+<article class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+  <!-- Header -->
+  <div class="flex items-center gap-3 p-4">
+    {partner.logo_url ? (
+      <img
+        src={partner.logo_url}
+        alt={partner.name}
+        class="w-12 h-12 rounded-xl object-cover flex-shrink-0"
+      />
+    ) : (
+      <div class="w-12 h-12 rounded-xl bg-brand-50 flex items-center justify-center text-2xl flex-shrink-0">
+        🍴
+      </div>
+    )}
+    <div class="flex-1 min-w-0">
+      <h2 class="font-bold text-gray-900 truncate">{partner.name}</h2>
+      {partner.description && (
+        <p class="text-sm text-gray-500 truncate">{partner.description}</p>
+      )}
+    </div>
+    {partner.bonus_info && (
+      <span class="flex-shrink-0 text-xs bg-brand-50 text-brand-700 font-semibold px-2 py-1 rounded-full">
+        🎁 Bonus
+      </span>
+    )}
+  </div>
+
+  <!-- Menu -->
+  {hasMenu ? (
+    <div class="px-4 pb-2">
+      <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Today's menu</p>
+      <p class="text-sm text-gray-700 leading-relaxed line-clamp-4 whitespace-pre-line">
+        {menuText}
+      </p>
+    </div>
+  ) : (
+    <div class="px-4 pb-2">
+      <p class="text-sm text-gray-400 italic">No menu added for today</p>
+    </div>
+  )}
+
+  <!-- Bonus claim -->
+  {partner.bonus_info && (
+    <div class="px-4 pb-4 pt-2">
+      <p class="text-sm text-gray-600 mb-1">{partner.bonus_info}</p>
+      <BonusClaimFlow
+        partnerId={partner.id}
+        bonusInfo={partner.bonus_info}
+        client:load
+      />
+    </div>
+  )}
+</article>
