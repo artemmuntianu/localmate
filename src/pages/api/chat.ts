@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro';
-import OpenAI from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const openai = new OpenAI({ apiKey: import.meta.env.OPENAI_API_KEY });
+const genAI = new GoogleGenerativeAI(import.meta.env.GEMINI_API_KEY);
 
 type Menu = { partnerName: string; menuText: string };
 type Message = { role: 'user' | 'assistant'; content: string };
@@ -30,13 +30,21 @@ Rules:
 - Recommend dishes based on stated preferences: vegan, high protein, quick, cheap.
 - If the question is unrelated to food, politely steer the conversation back to lunch.`;
 
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o',
-    messages: [{ role: 'system', content: systemPrompt }, ...messages],
-    max_tokens: 300,
-  });
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
 
-  const reply = completion.choices[0]?.message?.content ?? "Can't respond right now.";
+  // Format messages for Gemini API
+  const conversationHistory = [
+    { role: 'user', parts: [{ text: systemPrompt }] },
+    { role: 'model', parts: [{ text: 'Understood. I will follow these rules.' }] },
+    ...messages.map((msg) => ({
+      role: msg.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: msg.content }],
+    })),
+  ];
+
+  const chat = model.startChat({ history: conversationHistory.slice(0, -1) });
+  const result = await chat.sendMessage(conversationHistory[conversationHistory.length - 1].parts[0].text);
+  const reply = result.response.text() ?? "Can't respond right now.";
 
   return new Response(JSON.stringify({ reply }), {
     headers: { 'Content-Type': 'application/json' },
