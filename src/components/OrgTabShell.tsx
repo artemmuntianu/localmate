@@ -45,7 +45,7 @@ export default function OrgTabShell({ org, partners, menus, faqs }: Props) {
       <GdprModal />
 
       {/* Tab content */}
-      <div className="max-w-lg mx-auto px-4 py-4 pb-40">
+      <div className={`max-w-lg mx-auto ${tab !== 'map' ? 'px-4 py-4 pb-40' : ''}`}>
         {tab === 'home' && <HomeTab org={org} />}
         {tab === 'offers' && (
           <OffersTab partners={partners} onSelectCafe={openCafe} />
