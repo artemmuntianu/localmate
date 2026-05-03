@@ -1,14 +1,13 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
-import PartnerCard from '../../components/PartnerCard.astro';
-import AIChatWidget from '../../components/AIChatWidget';
+import OrgTabShell from '../../components/OrgTabShell';
 import { supabase } from '../../lib/supabase';
 
 const { org_slug } = Astro.params;
 
 const { data: org } = await supabase
   .from('organizations')
-  .select('id, name, slug')
+  .select('id, name, slug, logo_url, welcome_text, lat, lng')
   .eq('slug', org_slug)
   .single();
 
@@ -21,11 +20,18 @@ const today = new Date().toISOString().split('T')[0];
 const { data: partners } = await supabase
   .from('partners')
   .select(`
-    id, name, description, logo_url, credit_balance, bonus_info,
+    id, org_id, name, description, logo_url, credit_balance, bonus_info,
+    lat, lng, phone, hours, cover_photo_url, photos,
     daily_menus!inner(menu_text)
   `)
   .eq('org_id', org.id)
   .eq('daily_menus.date', today);
+
+const { data: faqs } = await supabase
+  .from('faqs')
+  .select('id, org_id, question, answer, category, created_at')
+  .eq('org_id', org.id)
+  .order('category');
 
 const menus = (partners ?? []).map((p) => ({
   partnerName: p.name,
@@ -34,33 +40,12 @@ const menus = (partners ?? []).map((p) => ({
 ---
 
 <BaseLayout title={`LocalMate — ${org.name}`}>
-  <header class="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-10">
-    <div class="max-w-lg mx-auto flex items-center gap-2">
-      <span class="text-2xl">🍽️</span>
-      <div>
-        <p class="text-xs text-gray-500 leading-none">Today's menu</p>
-        <h1 class="font-bold text-gray-900 leading-tight">{org.name}</h1>
-      </div>
-    </div>
-  </header>
+  <OrgTabShell
+    org={org}
+    partners={partners ?? []}
+    menus={menus}
+    faqs={faqs ?? []}
+    client:load
+  />
 
-  <main class="max-w-lg mx-auto px-4 py-4 pb-40 space-y-4">
-    {(partners ?? []).length === 0 ? (
-      <div class="text-center text-gray-400 py-16">
-        <p class="text-4xl mb-3">🌿</p>
-        <p class="font-medium">No menu added for today yet</p>
-        <p class="text-sm mt-1">Check back later!</p>
-      </div>
-    ) : (
-      (partners ?? []).map((partner) => (
-        <PartnerCard partner={partner} />
-      ))
-    )}
-  </main>
-
-  <AIChatWidget menus={menus} client:load />
-
-  <script>
-    window.posthog?.capture('menu_view');
-  </script>
 </BaseLayout>

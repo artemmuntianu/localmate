@@ -14,8 +14,16 @@ const { title = 'LocalMate' } = Astro.props;
     <title>{title}</title>
 
     <script define:vars={{ posthogKey: import.meta.env.PUBLIC_POSTHOG_KEY, posthogHost: import.meta.env.PUBLIC_POSTHOG_HOST }}>
-      if (posthogKey) {
-        (function(c,a,p,t,u,r,e){if(c.__ph_q){return}c.__ph_q=[];c.posthog={capture:function(){c.__ph_q.push(arguments)},init:function(){},identify:function(){},reset:function(){}};var s=a.createElement('script');s.async=true;s.src=p+'/static/array.js';s.onload=function(){window.posthog.init(posthogKey,{api_host:posthogHost,session_recording:{enabled:true},loaded:function(ph){c.__ph_q.forEach(function(args){ph.capture.apply(ph,args)});c.__ph_q=[];}})};a.head.appendChild(s);})(window,document,posthogHost);
+      if (posthogKey && posthogKey.length > 10 && !posthogKey.includes('...')) {
+        function initPostHog() {
+          if (window.__ph_q) return; // already initialised
+          (function(c,a,p,t,u,r,e){if(c.__ph_q){return}c.__ph_q=[];c.posthog={capture:function(){c.__ph_q.push(arguments)},init:function(){},identify:function(){},reset:function(){}};var s=a.createElement('script');s.async=true;s.src=p+'/static/array.js';s.onload=function(){window.posthog.init(posthogKey,{api_host:posthogHost,session_recording:{enabled:true},loaded:function(ph){c.__ph_q.forEach(function(args){ph.capture.apply(ph,args)});c.__ph_q=[];}})};a.head.appendChild(s);})(window,document,posthogHost);
+        }
+        window.__lm_initPostHog = initPostHog;
+        // Auto-init for returning visitors who already opted in
+        if (localStorage.getItem('lm_analytics_enabled') === '1') {
+          initPostHog();
+        }
       }
     </script>
   </head>
