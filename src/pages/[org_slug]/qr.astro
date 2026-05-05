@@ -1,0 +1,167 @@
+---
+import { supabase } from '../../lib/supabase';
+
+const { org_slug } = Astro.params;
+const codeId = Astro.url.searchParams.get('code');
+
+// Load partner by slug
+const { data: partner } = await supabase
+  .from('partners')
+  .select('id, name, bonus_info')
+  .eq('slug', org_slug!)
+  .single();
+
+if (!partner) return new Response(null, { status: 404 });
+
+// If ?code= param present, load that specific bonus code (QR scan flow)
+let bonus: { id: string; code: string; confirmed_at: string | null } | null = null;
+if (codeId) {
+  const { data } = await supabase
+    .from('bonus_codes')
+    .select('id, code, confirmed_at')
+    .eq('id', codeId)
+    .eq('partner_id', partner.id)
+    .single();
+  bonus = data;
+}
+---
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{partner.name} — Bonus</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100svh;
+      background: #f9fafb;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .card { width: 100%; max-width: 360px; text-align: center; }
+    .cafe-name { font-size: 1.5rem; font-weight: 700; color: #111827; margin-bottom: 0.25rem; }
+    .subtitle { font-size: 0.875rem; color: #9ca3af; margin-bottom: 2rem; }
+    .bonus-info { font-size: 1rem; color: #374151; margin-bottom: 1rem; }
+    .code { font-size: 4rem; font-weight: 800; letter-spacing: 0.25em; color: #111827; font-variant-numeric: tabular-nums; margin-bottom: 2.5rem; }
+    .btn {
+      display: block; width: 100%;
+      padding: 1.25rem 1.5rem;
+      background: #16a34a; color: #fff;
+      font-size: 1.25rem; font-weight: 700;
+      border: none; border-radius: 1rem;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .btn:hover:not(:disabled) { background: #15803d; }
+    .btn:disabled { background: #6b7280; cursor: default; }
+    .already { padding: 1.25rem; background: #dcfce7; color: #16a34a; font-size: 1.25rem; font-weight: 700; border-radius: 1rem; }
+    .error-msg { margin-top: 0.75rem; color: #dc2626; font-size: 0.875rem; min-height: 1.25rem; }
+    /* Manual entry styles */
+    .code-input {
+      width: 100%; font-size: 2.5rem; font-weight: 700; letter-spacing: 0.2em;
+      text-align: center; border: 2px solid #d1d5db; border-radius: 0.75rem;
+      padding: 0.75rem; margin-bottom: 1.5rem; outline: none;
+      font-variant-numeric: tabular-nums;
+    }
+    .code-input:focus { border-color: #16a34a; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <p class="cafe-name">{partner.name}</p>
+
+    {bonus ? (
+      /* QR scan mode: show specific code + confirm button */
+      <>
+        <p class="subtitle">Bonus redemption code</p>
+        {partner.bonus_info && <p class="bonus-info">{partner.bonus_info}</p>}
+        <p class="code">{bonus.code}</p>
+
+        {bonus.confirmed_at ? (
+          <div class="already">✓ Already confirmed</div>
+        ) : (
+          <>
+            <button id="confirmBtn" class="btn" data-code-id={bonus.id}>
+              Confirm Bonus →
+            </button>
+            <p class="error-msg" id="errMsg"></p>
+          </>
+        )}
+      </>
+    ) : (
+      /* Manual entry mode: waiter types the 6-digit code */
+      <>
+        <p class="subtitle">Enter the customer's bonus code</p>
+        <input
+          id="codeInput"
+          class="code-input"
+          type="text"
+          inputmode="numeric"
+          maxlength="6"
+          placeholder="000000"
+        />
+        <button id="confirmBtn" class="btn" data-partner-id={partner.id}>
+          Confirm Bonus →
+        </button>
+        <p class="error-msg" id="errMsg"></p>
+      </>
+    )}
+  </div>
+
+  <script>
+    const btn = document.getElementById('confirmBtn') as HTMLButtonElement | null;
+    const errMsg = document.getElementById('errMsg') as HTMLElement | null;
+
+    btn?.addEventListener('click', async () => {
+      if (!btn) return;
+      btn.disabled = true;
+      btn.textContent = 'Confirming…';
+      if (errMsg) errMsg.textContent = '';
+
+      try {
+        let body: Record<string, string>;
+        const codeInput = document.getElementById('codeInput') as HTMLInputElement | null;
+
+        if (codeInput) {
+          // Manual mode
+          const numericCode = codeInput.value.trim();
+          if (numericCode.length !== 6) {
+            if (errMsg) errMsg.textContent = 'Please enter a 6-digit code.';
+            btn.disabled = false;
+            btn.textContent = 'Confirm Bonus →';
+            return;
+          }
+          body = { partnerId: btn.dataset.partnerId!, numericCode };
+        } else {
+          // QR scan mode
+          body = { codeId: btn.dataset.codeId! };
+        }
+
+        const res = await fetch('/api/bonus/confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        if (res.ok) {
+          btn.textContent = '✓ Bonus Confirmed!';
+          btn.style.background = '#16a34a';
+        } else {
+          const data = await res.json();
+          if (errMsg) errMsg.textContent = data.error ?? 'Failed. Try again.';
+          btn.disabled = false;
+          btn.textContent = 'Confirm Bonus →';
+        }
+      } catch {
+        if (errMsg) errMsg.textContent = 'Network error. Try again.';
+        btn.disabled = false;
+        btn.textContent = 'Confirm Bonus →';
+      }
+    });
+  </script>
+</body>
+</html>

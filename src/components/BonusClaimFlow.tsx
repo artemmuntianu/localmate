@@ -1,131 +1,186 @@
 import { useState, useEffect, useRef } from 'react';
-import { supabase } from '../lib/supabase';
-import { getAnonId } from '../lib/anon';
-
-type State =
-  | { kind: 'idle' }
-  | { kind: 'claiming' }
-  | { kind: 'active'; code: string; expiresAt: number }
-  | { kind: 'expired' }
-  | { kind: 'no_credits' }
-  | { kind: 'error' };
-
-function randomCode(): string {
-  return Math.random().toString(36).slice(2, 8).toUpperCase();
-}
-
-function formatTime(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const m = Math.floor(total / 60).toString().padStart(2, '0');
-  const s = (total % 60).toString().padStart(2, '0');
-  return `${m}:${s}`;
-}
 
 type Props = {
   partnerId: string;
+  cafeSlug: string;
   bonusInfo: string | null;
+  bonusReusable: boolean;
 };
 
-export default function BonusClaimFlow({ partnerId, bonusInfo }: Props) {
-  const [state, setState] = useState<State>({ kind: 'idle' });
-  const [remaining, setRemaining] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+type StoredBonus = { codeId: string; code: string } | { usedUp: true };
+
+const storageKey = (id: string) => `lm_bonus_${id}`;
+
+export default function BonusClaimFlow({ partnerId, cafeSlug, bonusInfo, bonusReusable }: Props) {
+  const [open, setOpen] = useState(false);
+  const [codeId, setCodeId] = useState<string | null>(null);
+  const [code, setCode] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [usedUp, setUsedUp] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const [showCheck, setShowCheck] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (state.kind === 'active') {
-      setRemaining(state.expiresAt - Date.now());
-      timerRef.current = setInterval(() => {
-        const left = state.expiresAt - Date.now();
-        if (left <= 0) {
-          clearInterval(timerRef.current!);
-          setState({ kind: 'expired' });
-        } else {
-          setRemaining(left);
+    try {
+      const raw = localStorage.getItem(storageKey(partnerId));
+      if (!raw) return;
+      const stored: StoredBonus = JSON.parse(raw);
+      if ('usedUp' in stored) setUsedUp(true);
+    } catch {}
+  }, [partnerId]);
+
+  function stopPolling() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }
+
+  useEffect(() => () => stopPolling(), []);
+
+  function startPolling(id: string) {
+    stopPolling();
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/bonus/status/${id}`);
+        const { confirmed } = await res.json();
+        if (confirmed) {
+          stopPolling();
+          handleConfirmed();
         }
-      }, 500);
+      } catch {}
+    }, 5000);
+  }
+
+  async function claim() {
+    if (loading || usedUp) return;
+    setLoading(true);
+
+    try {
+      let existingCodeId: string | undefined;
+      try {
+        const raw = localStorage.getItem(storageKey(partnerId));
+        if (raw) {
+          const stored: StoredBonus = JSON.parse(raw);
+          if ('codeId' in stored) existingCodeId = stored.codeId;
+        }
+      } catch {}
+
+      const res = await fetch('/api/bonus/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partnerId, existingCodeId }),
+      });
+      const data: { codeId: string; code: string } = await res.json();
+
+      localStorage.setItem(storageKey(partnerId), JSON.stringify({ codeId: data.codeId, code: data.code }));
+      setCodeId(data.codeId);
+      setCode(data.code);
+      setOpen(true);
+      startPolling(data.codeId);
+    } catch {
+      // silently fail — try again next click
+    } finally {
+      setLoading(false);
     }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [state.kind === 'active' ? state.expiresAt : null]);
+  }
 
-  async function handleClaim() {
-    setState({ kind: 'claiming' });
-    const userId = getAnonId();
-    const { error } = await supabase.rpc('claim_bonus', {
-      p_partner_id: partnerId,
-      p_user_id: userId,
-    });
-
-    if (error) {
-      if (error.message.includes('no_credits')) {
-        setState({ kind: 'no_credits' });
+  function handleConfirmed() {
+    setConfirmed(true);
+    setTimeout(() => setShowCheck(true), 80);
+    setTimeout(() => {
+      setOpen(false);
+      setConfirmed(false);
+      setShowCheck(false);
+      if (bonusReusable) {
+        localStorage.removeItem(storageKey(partnerId));
+        setCodeId(null);
+        setCode(null);
       } else {
-        setState({ kind: 'error' });
+        localStorage.setItem(storageKey(partnerId), JSON.stringify({ usedUp: true }));
+        setUsedUp(true);
       }
-      return;
-    }
-
-    const code = randomCode();
-    const expiresAt = Date.now() + 15 * 60 * 1000;
-    setState({ kind: 'active', code, expiresAt });
-    window.posthog?.capture('bonus_claimed', { partner_id: partnerId });
+    }, 2500);
   }
 
-  if (state.kind === 'idle' || state.kind === 'no_credits' || state.kind === 'error') {
-    return (
-      <div>
-        <button
-          onClick={handleClaim}
-          disabled={state.kind === 'no_credits'}
-          className="w-full mt-3 py-3 px-4 rounded-xl font-semibold text-white bg-brand-600 hover:bg-brand-700 active:scale-95 transition-all disabled:bg-gray-300 disabled:cursor-not-allowed"
-        >
-          Claim bonus
-        </button>
-        {state.kind === 'no_credits' && (
-          <p className="text-center text-sm text-gray-400 mt-2">Sorry, no bonuses left</p>
-        )}
-        {state.kind === 'error' && (
-          <p className="text-center text-sm text-red-400 mt-2">Something went wrong. Try again later.</p>
-        )}
-      </div>
-    );
+  function closeModal() {
+    setOpen(false);
+    stopPolling();
   }
 
-  if (state.kind === 'claiming') {
-    return (
-      <button disabled className="w-full mt-3 py-3 px-4 rounded-xl font-semibold text-white bg-brand-500 opacity-70 cursor-wait">
-        Claiming…
-      </button>
-    );
-  }
+  const qrUrl = codeId ? `${typeof window !== 'undefined' ? window.location.origin : ''}/${cafeSlug}/qr?code=${codeId}` : '';
+  const qrSrc = qrUrl
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrUrl)}`
+    : '';
 
-  if (state.kind === 'expired') {
-    return (
-      <div className="w-full mt-3 py-3 px-4 rounded-xl text-center bg-gray-100 text-gray-500 font-medium">
-        Expired
-      </div>
-    );
-  }
+  const disabled = !bonusReusable && usedUp;
+  const label = disabled ? 'No more bonuses' : bonusReusable ? 'Reusable bonus' : 'One-time bonus';
 
-  // active
   return (
-    <div className="fixed inset-0 z-50 bg-brand-600 flex flex-col items-center justify-center text-white p-8">
-      <p className="text-sm font-medium opacity-80 mb-2">Show to the waiter</p>
-      <p className="text-7xl font-black tracking-widest mb-6">{state.code}</p>
-      {bonusInfo && (
-        <p className="text-lg font-semibold text-center mb-8 opacity-90">{bonusInfo}</p>
-      )}
-      <div className="bg-white/20 rounded-2xl px-8 py-4 text-center">
-        <p className="text-xs opacity-70 mb-1">Valid for</p>
-        <p className="text-4xl font-bold tabular-nums">{formatTime(remaining)}</p>
-      </div>
+    <>
       <button
-        onClick={() => setState({ kind: 'expired' })}
-        className="mt-10 text-sm opacity-60 underline"
+        onClick={claim}
+        disabled={disabled || loading}
+        className={`w-full py-3 rounded-2xl font-semibold text-white transition-colors ${
+          disabled ? 'bg-gray-300 cursor-not-allowed' : 'bg-brand-600 hover:bg-brand-700 active:scale-95'
+        }`}
       >
-        Close
+        {loading ? 'Generating…' : 'Claim Bonus'}
       </button>
-    </div>
+      <p className="text-center text-xs text-gray-400 mt-1">{label}</p>
+
+      {open && code && codeId && (
+        <div
+          className="fixed inset-0 z-[90] bg-black/70 flex items-end justify-center p-4 pb-8"
+          onClick={confirmed ? undefined : closeModal}
+        >
+          <div
+            className="bg-white rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {confirmed ? (
+              <div className="py-6 flex flex-col items-center gap-4">
+                <div
+                  className={`transition-all duration-500 ease-out ${
+                    showCheck ? 'scale-100 opacity-100' : 'scale-0 opacity-0'
+                  } w-28 h-28 bg-green-500 rounded-full flex items-center justify-center shadow-lg`}
+                >
+                  <span className="text-white text-6xl leading-none select-none">✓</span>
+                </div>
+                <div>
+                  <p className="text-xl font-bold text-gray-900">Bonus confirmed!</p>
+                  <p className="text-sm text-gray-400 mt-1">Enjoy your meal 🍽️</p>
+                </div>
+              </div>
+            ) : (
+              <>
+                <button
+                  onClick={closeModal}
+                  className="absolute top-4 right-5 text-gray-300 hover:text-gray-500 text-3xl leading-none"
+                >
+                  ×
+                </button>
+
+                {bonusInfo && <p className="font-semibold text-gray-800 mb-1">{bonusInfo}</p>}
+                <p className="text-sm text-gray-400 mb-5">Show this to your waiter or let them scan</p>
+
+                {qrSrc && (
+                  <div className="flex justify-center mb-4">
+                    <img src={qrSrc} alt="QR code" className="w-44 h-44 rounded-xl" />
+                  </div>
+                )}
+
+                <p className="text-5xl font-mono font-bold tracking-widest text-gray-900 mb-4">
+                  {code}
+                </p>
+
+                <p className="text-xs text-gray-400">Waiting for waiter to confirm…</p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }

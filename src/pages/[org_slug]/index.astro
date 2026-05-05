@@ -20,7 +20,7 @@ const today = new Date().toISOString().split('T')[0];
 const { data: partners } = await supabase
   .from('partners')
   .select(`
-    id, org_id, name, description, logo_url, credit_balance, bonus_info,
+    id, org_id, slug, name, description, logo_url, credit_balance, bonus_info, bonus_reusable,
     lat, lng, phone, hours, cover_photo_url, photos,
     daily_menus!inner(menu_text)
   `)

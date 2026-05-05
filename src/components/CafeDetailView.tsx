@@ -110,7 +110,7 @@ export default function CafeDetailView({ cafe, onBack }: Props) {
         {/* Claim button overlaid at photo bottom */}
         {cafe.bonus_info && (
           <div className="absolute bottom-0 left-0 right-0 px-4 pb-3">
-            <BonusClaimFlow partnerId={cafe.id} bonusInfo={cafe.bonus_info} />
+            <BonusClaimFlow partnerId={cafe.id} cafeSlug={cafe.slug} bonusInfo={cafe.bonus_info} bonusReusable={cafe.bonus_reusable} />
           </div>
         )}
       </div>

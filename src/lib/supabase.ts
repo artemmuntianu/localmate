@@ -22,11 +22,13 @@ export type HourEntry = { days: string; hours: string };
 export type Partner = {
   id: string;
   org_id: string;
+  slug: string;
   name: string;
   description: string | null;
   logo_url: string | null;
   credit_balance: number;
   bonus_info: string | null;
+  bonus_reusable: boolean;
   lat: number | null;
   lng: number | null;
   phone: string | null;
